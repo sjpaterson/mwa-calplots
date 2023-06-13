@@ -1,6 +1,8 @@
 #! /usr/bin/env python
+from cgi import print_environ_usage
 import os, logging
-from optparse import OptionParser #NB zeus does not have argparse!
+from optparse import OptionParser
+from tkinter import X #NB zeus does not have argparse!
 
 import numpy as np
 from astropy.io import fits
@@ -8,6 +10,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.gridspec as gridspec
 from matplotlib import pylab
+from astropy.stats import sigma_clip, mad_std
 
 from calplots import aocal
 
@@ -82,6 +85,8 @@ def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, 
     elif verbose > 1:
         logging.basicConfig(level=logging.DEBUG)
 
+    badTiles = set([])
+
     n_cols = ao.n_ant//n_rows
     gs = gridspec.GridSpec(n_rows, n_cols)
     gs.update(hspace=0.0, wspace=0.0)
@@ -96,6 +101,8 @@ def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, 
             ao = ao / ant_avg[:, np.newaxis, :, :]
             plot_title += " refant=average"
         else:
+            # Likely to be NaNs in the antenna data, ignore the warning regarding this.
+            np.seterr(divide='ignore', invalid='ignore')
             logging.info("using antenna %d as reference antenna", refant)
             ao = ao / ao[:, refant, :, :][:, np.newaxis, :, :]
             plot_title += " refant=%d" % refant
@@ -144,19 +151,44 @@ def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, 
                 amps = np.abs(ao[timestep, antenna, :, pol])
                 angles= np.angle(ao[timestep, antenna, :, pol], deg=True)
 
+                # If no antenna data, skip to the next.
+                if np.isnan(amps).all() or np.isnan(angles).all():
+                    continue
+
                 # Phase plot
                 ax.plot(angles, color=POL_COLOR[polstr], zorder=POL_ZORDER[polstr], linestyle='None', marker=marker, markersize=markersize)
                 # Amplitude plot
                 ax1.plot(amps, color=POL_COLOR[polstr], zorder=POL_ZORDER[polstr], linestyle='None', marker=marker, markersize=markersize)
 
-                #if np.all(np.isnan(amps)):
-                    # all flagged
-                    #rect = ax.patch  # a Rectangle instance
-                    #rect.set_facecolor('black')
-                    #rect.set_alpha('0.4')
-                    #rect = ax1.patch  # a Rectangle instance
-                    #rect.set_facecolor('black')
-                    #rect.set_alpha('0.4')
+                # Setup a 2d matrix to work with and remove any NaN phase angles.             
+                anglesRad= np.angle(ao[timestep, antenna, :, pol], deg=False)
+                angles2d = np.vstack((np.arange(0, len(anglesRad)), np.copy(anglesRad))).T
+                angles2d = angles2d[~np.isnan(angles2d).any(axis=1)]
+                # Unwrap the phase.
+                angles2d[:,1] = np.unwrap(angles2d[:,1])
+                # Convert to degrees.
+                angles2d[:,1] = np.rad2deg(angles2d[:,1])
+                
+                # Sigma clip the data to create a better fit.
+                angles2dClipped = sigma_clip(angles2d, masked=False, stdfunc=mad_std, sigma=3, axis=1)
+                angles2dClipped = angles2dClipped[~np.isnan(angles2dClipped).any(axis=1)]
+
+                # Fit the linear model and test.
+                model = np.polyfit(angles2dClipped[:, 0], angles2dClipped[:, 1], 1)
+                linPred = model[0]*angles2d[:,0] + model[1]
+                rmse = np.sqrt(np.nanmean((linPred-angles2d[:,1])**2))
+
+                # Re-wrap the prediction and plot.
+                linPred = linPred = (linPred + 180) % (2 * 180) - 180
+                ax.plot(angles2d[:,0], linPred, color='g', zorder=POL_ZORDER[polstr], linestyle='None', marker=marker, markersize=markersize)
+
+                # If the RMSE is greater than 20, flag the antenna as bad.
+                if rmse > 20:
+                    ax.set_facecolor('xkcd:salmon')
+                    print(f'Bad Antenna Detected with RMSE {rmse}: {antenna}')
+                    badTiles.add(antenna)
+
+
             ax.set_autoscale_on(False)
             ax.set_xticks([])
             ax.set_yticks([])
@@ -180,6 +212,13 @@ def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, 
             int_str = ""
         ampfig.savefig("%s%s_amp.%s" % (plot_filename, int_str, format))
         phsfig.savefig("%s%s_phase.%s" % (plot_filename, int_str, format))
+
+    # Save the bad tiles to file for manual review and return for automated.
+    with open(f'{plot_filename}_bad_tiles.txt', 'a') as badTilesFile:
+        for tile in badTiles:
+            badTilesFile.write(f'{tile}\n')
+
+    return badTiles
 
 
 if __name__ == '__main__':

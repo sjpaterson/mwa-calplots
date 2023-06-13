@@ -39,7 +39,6 @@ setup(
     long_description=read('README.md'),
     long_description_content_type='text/markdown',
     packages=['calplots'],
-    scripts=['scripts/aocal_plot.py'],
     install_requires=reqs,
     python_requires='>=3.6',
     setup_requires=['pytest-runner'],
