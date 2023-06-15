@@ -1,8 +1,6 @@
 #! /usr/bin/env python
-from cgi import print_environ_usage
 import os, logging
 from optparse import OptionParser
-from tkinter import X #NB zeus does not have argparse!
 
 import numpy as np
 from astropy.io import fits
