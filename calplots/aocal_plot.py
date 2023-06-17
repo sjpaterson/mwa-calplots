@@ -73,7 +73,7 @@ def nanaverage(a, axis=None, weights=None):
     return np.nansum(a*weights, axis=axis)/np.nansum(weights, axis=axis)
 
 
-def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, format="png", outdir=None, ants_per_line=8, marker=',', markersize=2, verbose=0, metafits=None):
+def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, format="png", outdir=None, ants_per_line=8, marker=',', markersize=2, verbose=0, metafits=None, testTiles=True):
     """
     plot aocal
     """
@@ -157,6 +157,10 @@ def plot(ao, plot_filename, refant=None, n_rows=8, plot_title="", amp_max=None, 
                 ax.plot(angles, color=POL_COLOR[polstr], zorder=POL_ZORDER[polstr], linestyle='None', marker=marker, markersize=markersize)
                 # Amplitude plot
                 ax1.plot(amps, color=POL_COLOR[polstr], zorder=POL_ZORDER[polstr], linestyle='None', marker=marker, markersize=markersize)
+
+                # Elected not to test for bad tiles so skip the testing.
+                if testTiles == False:
+                    continue
 
                 # Setup a 2d matrix to work with and remove any NaN phase angles.             
                 anglesRad= np.angle(ao[timestep, antenna, :, pol], deg=False)
